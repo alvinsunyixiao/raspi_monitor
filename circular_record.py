@@ -26,22 +26,23 @@ def overlay_timestamp(request):
 if __name__ == "__main__":
     # command line args
     parser = argparse.ArgumentParser()
-    parser.add_argument("--width", type=int, default=1920,
+    parser.add_argument("--width", type=int, default=1280,
                         help="video frame height")
-    parser.add_argument("--height", type=int, default=1080,
+    parser.add_argument("--height", type=int, default=720,
                         help="video frame height")
     parser.add_argument("--fps", type=float, default=30.0,
                         help="frame rate")
     parser.add_argument("-o", "--output-dir", type=str, default="outputs",
                         help="output directory to store the circular recording")
-    parser.add_argument("--segment-length", type=float, default=3.0,
+    parser.add_argument("--segment-length", type=float, default=60.0,
                         help="length of each recording segment in [s]")
-    parser.add_argument("--num-segments", type=int, default=3,
+    parser.add_argument("--num-segments", type=int, default=300,
                         help="number of segments to keep circulate")
     args = parser.parse_args()
 
     # create output directory
     os.mkdir(args.output_dir)
+    segment_path = os.path.join(args.output_dir, "segments.txt")
 
     # configure camera
     cam = Picamera2()
@@ -57,29 +58,24 @@ if __name__ == "__main__":
     output = FileOutput()
     cam.start_recording(encoder, output)
 
-    try:
-        fileq = deque(maxlen=args.num_segments)
-        while True:
-            # start recording segment
-            fpath = os.path.join(args.output_dir, time.strftime("vid_%Y-%m-%d_%H-%M-%S.h264"))
-            output.fileoutput = fpath
-            output.start()
+    fileq = deque(maxlen=args.num_segments)
+    while True:
+        # start recording segment
+        fpath = os.path.join(args.output_dir, time.strftime("vid_%Y-%m-%d_%H-%M-%S.h264"))
+        output.fileoutput = fpath
+        output.start()
 
-            # wait for recording
-            time.sleep(args.segment_length)
-            output.stop()
+        # delete file if necessary
+        if len(fileq) == args.num_segments:
+            os.remove(fileq[0])
 
-            # delete file if necessary
-            if len(fileq) == args.num_segments:
-                os.remove(fileq[0])
+        # update segments file
+        fileq.append(fpath)
+        with open(segment_path, "w") as f:
+            f.writelines([f"file {fpath.split('/')[-1]}\n" for fpath in fileq])
 
-            # save file
-            fileq.append(fpath)
-            with open(os.path.join(args.output_dir, "segments.txt"), "w") as f:
-                f.writelines([f"file {fpath.split('/')[-1]}\n" for fpath in fileq])
-    except BaseException as e:
-        print(e)
-        print("Exception receive. Exiting...")
-    finally:
-        cam.stop_recording()
+        # wait for recording
+        time.sleep(args.segment_length)
+        output.stop()
 
+    cam.stop_recording()
